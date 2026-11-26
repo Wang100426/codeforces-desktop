@@ -1,0 +1,39 @@
+{
+  "name": "cf-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "productName": "CF Desktop",
+  "description": "A cleaner Codeforces desktop client",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.cfdesktop.app",
+    "productName": "CF Desktop",
+    "directories": { "output": "release" },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "auth.cjs",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "CFDesktop-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CF Desktop"
+    }
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "26.15.3"
+  }
+}
