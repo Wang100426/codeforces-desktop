@@ -361,16 +361,8 @@ input, select { border: 0; background: none; }
 .editor-top { flex: none; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--line-soft); background: rgba(9, 13, 21, .5); }
 .editor-top .detail-back { height: 38px; padding: 0 14px 0 10px; font-size: 13px; }
 .editor-top-actions { display: flex; align-items: center; gap: 10px; }
-.editor-close-btn {
-  width: 38px; height: 38px; flex: none; display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
-  color: #ffb4b8; font-size: 20px; line-height: 1; font-weight: 700;
-  transition: .18s;
-}
-.editor-close-btn:hover { background: rgba(255, 91, 95, .18); border-color: #ff5b5f; color: #fff; }
 .editor-title { flex: 1; display: flex; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 700; }
 .editor-title small { font-size: 10px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; font-weight: 500; }
-.editor-top-actions { display: flex; align-items: center; gap: 10px; }
 .editor-top-actions .primary-btn { height: 38px; padding: 0 16px; font-size: 13px; }
 .editor-lang { height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: #dfe6ff; font-size: 12px; font-weight: 600; outline: none; }
 .editor-body { flex: 1; display: flex; flex-direction: column; padding: 14px 18px 12px; gap: 10px; min-height: 0; }
