@@ -1194,6 +1194,7 @@ $('#statement-content').addEventListener('click', (e) => {
   if (e.target.closest('#statement-write-bottom')) openEditor();
 });
 $('#editor-back').addEventListener('click', () => closeEditor());
+$('#editor-close').addEventListener('click', () => closeEditor());
 $('#editor-submit').addEventListener('click', submitFromEditor);
 $('#editor-lang').addEventListener('change', () => {
   const ta = $('#editor-textarea');

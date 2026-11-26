@@ -345,9 +345,8 @@ input, select { border: 0; background: none; }
   transition: transform .48s cubic-bezier(.22, 1, .36, 1);
 }
 .detail-root.open .detail-panel { transform: translateX(0); }
-/* 编辑器打开时，题面面板整体滑到左侧让位 */
-.detail-root.open.editor-mode .detail-panel { transform: translateX(-620px); }
-@media (max-width: 1500px) { .detail-root.open.editor-mode .detail-panel { transform: translateX(-52vw); } }
+/* 编辑器打开时，题面面板左移让位；位移量 = 编辑器宽度与可用空间的较小值，保证题面不出屏 */
+.detail-root.open.editor-mode .detail-panel { transform: translateX(calc(-1 * min(640px, 62vw, 100vw - 760px))); }
 
 .editor-root { z-index: 70; }
 .editor-root .editor-panel {
