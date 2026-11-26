@@ -21,6 +21,8 @@ const TTL = [
 ];
 
 const cache = new Map();
+const statementCache = new Map();
+const STATEMENT_TTL = 24 * 60 * 60 * 1000;
 let queueTail = Promise.resolve();
 let lastRequestAt = 0;
 
@@ -105,6 +107,31 @@ async function apiCall(method, params, force) {
   return { data, cached: false, fetchedAt: now };
 }
 
+// 第三方题面源：Jina Reader 代理 CF 题目页，绕开 Cloudflare，返回干净的 markdown
+async function fetchStatement(contestId, index, force) {
+  const key = `${contestId}|${index}`;
+  const hit = statementCache.get(key);
+  if (!force && hit && Date.now() - hit.at < STATEMENT_TTL) {
+    return { content: hit.content, cached: true, fetchedAt: hit.at };
+  }
+  const url = `https://r.jina.ai/https://codeforces.com/problemset/problem/${encodeURIComponent(contestId)}/${encodeURIComponent(index)}`;
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'CF Desktop / Electron Client', Accept: 'text/plain' },
+    signal: AbortSignal.timeout(45000)
+  });
+  if (!response.ok) throw new Error(`题面服务返回 HTTP ${response.status}（免费额度可能用尽）`);
+  const raw = await response.text();
+  const marker = 'Markdown Content:';
+  const markerAt = raw.indexOf(marker);
+  const content = (markerAt >= 0 ? raw.slice(markerAt + marker.length) : raw).trim();
+  if (!content || /Just a moment|Cloudflare|Rate limit/i.test(content)) {
+    throw new Error('题面服务暂时不可用，请稍后重试或打开原网页');
+  }
+  const at = Date.now();
+  statementCache.set(key, { content, at });
+  return { content, cached: false, fetchedAt: at };
+}
+
 // 从改名前（cf-pulse）的 userData 一次性迁移本地设置，避免 handle 被重置为 tourist
 function migrateLegacyStorage() {
   const legacy = path.join(app.getPath('appData'), 'cf-pulse');
@@ -147,6 +174,17 @@ function createWindow() {
 ipcMain.handle('cf:call', async (_event, { method, params = {}, force = false }) => {
   try {
     return { ok: true, ...(await apiCall(method, params, force)) };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
+ipcMain.handle('problem:statement', async (_event, { contestId, index, force = false }) => {
+  try {
+    if (!/^\d+$/.test(String(contestId)) || !/^[A-Za-z]\d?$/.test(String(index))) {
+      throw new Error('题号格式不对');
+    }
+    return { ok: true, ...(await fetchStatement(contestId, index, force)) };
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };
   }

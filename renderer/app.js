@@ -24,7 +24,9 @@ const state = {
   timer: null,
   submissionIndex: new Map(),
   detail: null,
-  detailCloseTimer: null
+  detailCloseTimer: null,
+  statementPath: '',
+  statementCloseTimer: null
 };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -411,8 +413,9 @@ function subCompact(sub) {
 function bindCompactLinks() {
   $$('[data-contest]').forEach((el) => el.addEventListener('click', (e) => openLink(e, `/contest/${el.dataset.contest}`)));
   $$('[data-problem]').forEach((el) => el.addEventListener('click', (e) => {
+    e.stopPropagation();
     const [id, index] = el.dataset.problem.split('|');
-    openLink(e, `/problemset/problem/${id}/${index}`);
+    openStatement(id, index);
   }));
   $$('[data-submit]').forEach((el) => el.addEventListener('click', (e) => {
     const [id, index] = el.dataset.submit.split('|');
@@ -762,6 +765,110 @@ function closeSubmissionDetail() {
   state.detailCloseTimer = setTimeout(() => root.classList.remove('mounted'), 520);
 }
 
+/* ---------------- problem statement (Jina Reader) ---------------- */
+function statementInline(text) {
+  return esc(text)
+    .replace(/\\langle/g, '⟨').replace(/\\rangle/g, '⟩')
+    .replace(/\\leq/g, '≤').replace(/\\le\b/g, '≤')
+    .replace(/\\geq/g, '≥').replace(/\\ge\b/g, '≥')
+    .replace(/\\cdot/g, '·').replace(/\\ldots/g, '…').replace(/\\times/g, '×')
+    .replace(/\\bmod/g, ' mod ').replace(/\\neq?(\b|$)/g, '≠').replace(/\\bmod\b/g, ' mod ')
+    .replace(/\\max\b/g, 'max').replace(/\\min\b/g, 'min').replace(/\\gcd\b/g, 'gcd').replace(/\\sum\b/g, 'Σ')
+    .replace(/\\left|\\right|\\,|\\!|\\ /g, '')
+    .replace(/_\{_\{([^}]*)\}\}/g, '<sub>$1</sub>')
+    .replace(/_\{([^}]*)\}/g, '<sub>$1</sub>')
+    .replace(/_([a-zA-Z0-9])\b/g, '<sub>$1</sub>')
+    .replace(/\^\{([^}]*)\}/g, '<sup>$1</sup>')
+    .replace(/\^([a-zA-Z0-9])\b/g, '<sup>$1</sup>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\$([^$]+)\$/g, '<span class="math">$1</span>');
+}
+
+function renderStatementMarkdown(md) {
+  const out = [];
+  let para = [], list = false, pre = [];
+  const flushPara = () => {
+    if (para.length) { out.push(`<p>${statementInline(para.join(' '))}</p>`); para = []; }
+  };
+  const flushList = () => { if (list) { out.push('</ul>'); list = false; } };
+  const flushPre = () => {
+    if (pre.length) { out.push(`<pre>${esc(pre.join('\n'))}</pre>`); pre = []; }
+  };
+  for (const raw of (md || '').split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim() || line.trim() === 'Copy') { flushPara(); flushList(); flushPre(); continue; }
+    if (/^(Input|Output|Example|Examples|Note|Explanation|Constraints)$/i.test(line.trim())) {
+      flushPara(); flushList(); flushPre();
+      out.push(`<h3>${esc(line.trim())}</h3>`);
+      continue;
+    }
+    if (/^(\*|-)\s+/.test(line)) {
+      flushPara(); flushPre();
+      if (!list) { out.push('<ul>'); list = true; }
+      out.push(`<li>${statementInline(line.replace(/^(\*|-)\s+/, ''))}</li>`);
+      continue;
+    }
+    // 样例数据行：纯数字/空格/小数点，聚合成代码块
+    if (/^[\d\s.\-+]+$/.test(line) && /\d/.test(line)) {
+      flushPara(); flushList();
+      pre.push(line);
+      continue;
+    }
+    flushList(); flushPre();
+    para.push(line.trim());
+  }
+  flushPara(); flushList(); flushPre();
+  return `<div class="statement-body">${out.join('')}</div>`;
+}
+
+function renderStatementHero(p) {
+  const rating = p.rating != null ? `<span class="tag" style="color:${ratingColor(p.rating)}">${p.rating}</span>` : '';
+  const tags = (p.tags || []).slice(0, 6).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
+  return `<div class="statement-hero detail-stagger">
+    <h2>${esc(p.name || '未知题目')}</h2>
+    <div class="sh-meta"><span class="sh-code">${p.contestId}${esc(p.index)}</span>${rating}${tags}</div>
+  </div>`;
+}
+
+async function openStatement(contestId, index) {
+  const p = (state.problems || []).find((x) => String(x.contestId) === String(contestId) && x.index === index)
+    || { contestId, index, name: `${contestId}${index}`, tags: [] };
+  clearTimeout(state.statementCloseTimer);
+  state.statementPath = `/problemset/problem/${contestId}/${index}`;
+  $('#statement-code').textContent = `${contestId}${index}`;
+  $('#statement-content').innerHTML = `${renderStatementHero(p)}
+    <div class="statement-loading detail-stagger"><span class="spinner"></span><span>正在从第三方题面源加载 ${contestId}${index}…</span></div>`;
+  const root = $('#statement-detail');
+  root.classList.add('mounted');
+  root.setAttribute('aria-hidden', 'false');
+  void root.offsetWidth;
+  root.classList.add('open');
+  $('#statement-progress').classList.add('on');
+  try {
+    const result = await window.desktop.statement(contestId, index);
+    if (!result.ok) throw new Error(result.error);
+    $('#statement-content').innerHTML = `${renderStatementHero(p)}
+      ${renderStatementMarkdown(result.content)}
+      <p class="statement-source">题面由第三方服务 Jina Reader 代理 Codeforces 原题页获取${result.cached ? ' · 命中本地缓存' : ''}，数学公式保留原始 LaTeX 写法。</p>
+      <div class="detail-actions"><button class="primary-btn" id="statement-open-code">在 Codeforces 打开原题 ↗</button><button class="ghost-btn" id="statement-back-bottom">返回列表</button></div>`;
+  } catch (error) {
+    $('#statement-content').innerHTML = `${renderStatementHero(p)}
+      <div class="error-box detail-stagger">题面加载失败：${esc(error?.message || error)}<br><span class="tiny">第三方服务可能限流或暂时不可用，稍后重试或直接打开原网页。</span></div>
+      <div class="detail-actions"><button class="primary-btn" id="statement-open-code">在 Codeforces 打开原题 ↗</button><button class="ghost-btn" id="statement-back-bottom">返回列表</button></div>`;
+  } finally {
+    $('#statement-progress').classList.remove('on');
+  }
+}
+
+function closeStatement() {
+  const root = $('#statement-detail');
+  if (!root.classList.contains('mounted')) return;
+  root.classList.remove('open');
+  root.setAttribute('aria-hidden', 'true');
+  clearTimeout(state.statementCloseTimer);
+  state.statementCloseTimer = setTimeout(() => root.classList.remove('mounted'), 520);
+}
+
 /* ---------------- users ---------------- */
 async function loadUsers(force = false) {
   const target = $('#user-grid');
@@ -985,8 +1092,20 @@ $('#detail-body').addEventListener('click', (e) => {
   if (e.target.closest('#detail-open-code') && state.detailPath) openLink(e, state.detailPath);
   if (e.target.closest('#detail-back-bottom')) closeSubmissionDetail();
 });
+$('#statement-back').addEventListener('click', closeStatement);
+$('#statement-close').addEventListener('click', closeStatement);
+$$('[data-statement-close]').forEach((el) => el.addEventListener('click', closeStatement));
+$('#statement-external').addEventListener('click', (e) => {
+  if (state.statementPath) openLink(e, state.statementPath);
+});
+$('#statement-content').addEventListener('click', (e) => {
+  if (e.target.closest('#statement-open-code') && state.statementPath) openLink(e, state.statementPath);
+  if (e.target.closest('#statement-back-bottom')) closeStatement();
+});
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('#sub-detail').classList.contains('mounted')) closeSubmissionDetail();
+  if (e.key !== 'Escape') return;
+  if ($('#statement-detail').classList.contains('mounted')) closeStatement();
+  else if ($('#sub-detail').classList.contains('mounted')) closeSubmissionDetail();
 });
 
 refreshAuthUI();
