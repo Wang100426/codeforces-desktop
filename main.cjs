@@ -2,7 +2,11 @@
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 const auth = require('./auth.cjs');
+
+// 固定用户数据目录：productName 变化也不再重置 handle / 关注列表 / API key
+app.setPath('userData', path.join(app.getPath('appData'), 'CF Desktop'));
 
 const API_ROOT = 'https://codeforces.com/api/';
 const MIN_INTERVAL_MS = 2100; // 官方限制：每 2 秒最多一次请求
@@ -101,6 +105,24 @@ async function apiCall(method, params, force) {
   return { data, cached: false, fetchedAt: now };
 }
 
+// 从改名前（cf-pulse）的 userData 一次性迁移本地设置，避免 handle 被重置为 tourist
+function migrateLegacyStorage() {
+  const legacy = path.join(app.getPath('appData'), 'cf-pulse');
+  const legacyLS = path.join(legacy, 'Local Storage');
+  const newLS = path.join(app.getPath('userData'), 'Local Storage');
+  if (path.resolve(legacy) === path.resolve(app.getPath('userData'))) return;
+  if (!fs.existsSync(legacyLS)) return;
+  try {
+    const logs = fs.readdirSync(path.join(newLS, 'leveldb')).filter((f) => f.endsWith('.log'));
+    if (logs.some((f) => fs.readFileSync(path.join(newLS, 'leveldb', f), 'utf8').includes('cf.handle'))) return;
+    fs.rmSync(newLS, { recursive: true, force: true });
+    fs.cpSync(legacyLS, newLS, { recursive: true });
+    console.log('[CF Desktop] 已从 cf-pulse 迁移本地设置');
+  } catch (error) {
+    console.warn('[CF Desktop] 迁移本地设置失败：', error?.message);
+  }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -162,6 +184,7 @@ ipcMain.on('window:control', (event, action) => {
 });
 
 app.whenReady().then(() => {
+  migrateLegacyStorage();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
