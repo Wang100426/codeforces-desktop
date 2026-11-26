@@ -26,7 +26,9 @@ const state = {
   detail: null,
   detailCloseTimer: null,
   statementPath: '',
-  statementCloseTimer: null
+  statementCloseTimer: null,
+  editorProblem: null,
+  editorSaveTimer: null
 };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -850,7 +852,7 @@ async function openStatement(contestId, index) {
     $('#statement-content').innerHTML = `${renderStatementHero(p)}
       ${renderStatementMarkdown(result.content)}
       <p class="statement-source">题面由第三方服务 Jina Reader 代理 Codeforces 原题页获取${result.cached ? ' · 命中本地缓存' : ''}，数学公式保留原始 LaTeX 写法。</p>
-      <div class="detail-actions"><button class="primary-btn" id="statement-open-code">在 Codeforces 打开原题 ↗</button><button class="ghost-btn" id="statement-back-bottom">返回列表</button></div>`;
+      <div class="detail-actions"><button class="primary-btn" id="statement-write-bottom">写代码 ✎</button><button class="ghost-btn" id="statement-open-code">在 Codeforces 打开原题 ↗</button><button class="ghost-btn" id="statement-back-bottom">返回列表</button></div>`;
   } catch (error) {
     $('#statement-content').innerHTML = `${renderStatementHero(p)}
       <div class="error-box detail-stagger">题面加载失败：${esc(error?.message || error)}<br><span class="tiny">第三方服务可能限流或暂时不可用，稍后重试或直接打开原网页。</span></div>
@@ -863,10 +865,97 @@ async function openStatement(contestId, index) {
 function closeStatement() {
   const root = $('#statement-detail');
   if (!root.classList.contains('mounted')) return;
+  closeEditor(true);
   root.classList.remove('open');
   root.setAttribute('aria-hidden', 'true');
   clearTimeout(state.statementCloseTimer);
   state.statementCloseTimer = setTimeout(() => root.classList.remove('mounted'), 520);
+}
+
+/* ---------------- code editor ---------------- */
+const DEFAULT_TEMPLATES = {
+  'gnu-c++20': '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n',
+  'gnu-c++17': '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    \n    return 0;\n}\n',
+  'python3.8': 'import sys\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n',
+  'pypy3.10': 'import sys\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n',
+  'java17': 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        \n    }\n}\n',
+  'rust2021': 'use std::io;\n\nfn main() {\n    \n}\n'
+};
+
+function draftKey() {
+  return state.editorProblem ? `cf.draft.${state.editorProblem.contestId}${state.editorProblem.index}` : '';
+}
+
+function editorUpdateStats() {
+  const text = $('#editor-textarea').value;
+  const lines = text === '' ? 0 : text.split('\n').length;
+  $('#editor-stats').textContent = `${lines} 行 · ${text.length} 字符`;
+}
+
+function editorScheduleSave() {
+  clearTimeout(state.editorSaveTimer);
+  $('#editor-saved').textContent = '保存中…';
+  state.editorSaveTimer = setTimeout(() => {
+    const key = draftKey();
+    if (!key) return;
+    const value = $('#editor-textarea').value;
+    if (value.trim()) localStorage.setItem(key, JSON.stringify({ code: value, lang: $('#editor-lang').value, at: Date.now() }));
+    else localStorage.removeItem(key);
+    $('#editor-saved').textContent = '已保存';
+  }, 600);
+}
+
+function openEditor() {
+  if (!state.statementPath) return;
+  const m = state.statementPath.match(/problemset\/problem\/(\d+)\/(\w+)/);
+  if (!m) return;
+  state.editorProblem = { contestId: m[1], index: m[2] };
+  $('#editor-code').textContent = `${m[1]}${m[2]}`;
+
+  const saved = JSON.parse(localStorage.getItem(draftKey()) || 'null');
+  const lang = saved?.lang || $('#editor-lang').value;
+  $('#editor-lang').value = DEFAULT_TEMPLATES[lang] ? lang : 'gnu-c++17';
+  const ta = $('#editor-textarea');
+  ta.value = saved?.code ?? DEFAULT_TEMPLATES[$('#editor-lang').value] ?? '';
+  editorUpdateStats();
+  $('#editor-saved').textContent = saved ? '已恢复草稿' : '已保存';
+
+  const sroot = $('#statement-detail');
+  const eroot = $('#editor-root');
+  eroot.classList.add('mounted');
+  eroot.setAttribute('aria-hidden', 'false');
+  void eroot.offsetWidth;
+  sroot.classList.add('editor-mode');
+  eroot.classList.add('open');
+  setTimeout(() => ta.focus(), 480);
+}
+
+function closeEditor(keepStatement = false) {
+  const root = $('#editor-root');
+  if (!root.classList.contains('mounted')) return;
+  root.classList.remove('open');
+  root.setAttribute('aria-hidden', 'true');
+  $('#statement-detail').classList.remove('editor-mode');
+  setTimeout(() => root.classList.remove('mounted'), 520);
+}
+
+async function submitFromEditor() {
+  const code = $('#editor-textarea').value;
+  if (!code.trim()) { status('代码是空的，先写点什么再提交'); return; }
+  if (!state.editorProblem) return;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(code);
+    copied = true;
+  } catch {
+    const ta = $('#editor-textarea');
+    ta.select();
+    try { copied = document.execCommand('copy'); } catch { copied = false; }
+    window.getSelection()?.removeAllRanges();
+  }
+  status(copied ? '代码已复制到剪贴板，正在打开 Codeforces 提交页…' : '复制失败，请在编辑器手动全选复制，正在打开提交页…');
+  const url = `https://codeforces.com/contest/${state.editorProblem.contestId}/submit/${state.editorProblem.index}`;
+  await window.desktop.openExternal(url);
 }
 
 /* ---------------- users ---------------- */
@@ -1094,6 +1183,7 @@ $('#detail-body').addEventListener('click', (e) => {
 });
 $('#statement-back').addEventListener('click', closeStatement);
 $('#statement-close').addEventListener('click', closeStatement);
+$('#statement-write').addEventListener('click', openEditor);
 $$('[data-statement-close]').forEach((el) => el.addEventListener('click', closeStatement));
 $('#statement-external').addEventListener('click', (e) => {
   if (state.statementPath) openLink(e, state.statementPath);
@@ -1101,11 +1191,36 @@ $('#statement-external').addEventListener('click', (e) => {
 $('#statement-content').addEventListener('click', (e) => {
   if (e.target.closest('#statement-open-code') && state.statementPath) openLink(e, state.statementPath);
   if (e.target.closest('#statement-back-bottom')) closeStatement();
+  if (e.target.closest('#statement-write-bottom')) openEditor();
+});
+$('#editor-back').addEventListener('click', () => closeEditor());
+$('#editor-submit').addEventListener('click', submitFromEditor);
+$('#editor-lang').addEventListener('change', () => {
+  const ta = $('#editor-textarea');
+  if (ta.value.trim() === DEFAULT_TEMPLATES[Object.keys(DEFAULT_TEMPLATES).find((k) => DEFAULT_TEMPLATES[k] === ta.value)] || !ta.value.trim()) {
+    ta.value = DEFAULT_TEMPLATES[$('#editor-lang').value] ?? '';
+    editorUpdateStats();
+  }
+  editorScheduleSave();
+});
+$('#editor-textarea').addEventListener('input', () => { editorUpdateStats(); editorScheduleSave(); });
+$('#editor-textarea').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target;
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.slice(0, start) + '    ' + ta.value.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + 4;
+    editorUpdateStats();
+    editorScheduleSave();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submitFromEditor(); }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if ($('#statement-detail').classList.contains('mounted')) closeStatement();
-  else if ($('#sub-detail').classList.contains('mounted')) closeSubmissionDetail();
+  if ($('#editor-root').classList.contains('open')) closeEditor();
+  else if ($('#statement-detail').classList.contains('open')) closeStatement();
+  else if ($('#sub-detail').classList.contains('open')) closeSubmissionDetail();
 });
 
 refreshAuthUI();

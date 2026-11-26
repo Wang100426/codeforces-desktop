@@ -267,11 +267,41 @@
         </button>
         <div class="detail-top-title"><span>题面</span><small id="statement-code">#—</small></div>
         <div class="detail-top-actions">
+          <button class="write-btn" id="statement-write" title="打开代码编辑器">
+            <svg viewBox="0 0 24 24" class="ico"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+            <span>写代码</span>
+          </button>
           <button class="icon-btn" id="statement-external" title="在 Codeforces 打开原题">↗</button>
           <button class="icon-btn" id="statement-close" title="关闭">×</button>
         </div>
       </header>
       <div class="detail-body" id="statement-scroll"><div id="statement-content"></div></div>
+    </aside>
+  </div>
+
+  <div id="editor-root" class="detail-root editor-root" aria-hidden="true">
+    <aside class="editor-panel" role="dialog" aria-modal="true" aria-label="代码编辑器">
+      <header class="editor-top">
+        <button class="detail-back" id="editor-back" title="返回题面">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M15 5l-7 7 7 7"/></svg><span>返回题面</span>
+        </button>
+        <div class="editor-title"><span>编写代码</span><small id="editor-code">#—</small></div>
+        <div class="editor-top-actions">
+          <select id="editor-lang" class="editor-lang" title="选择语言（提交页会用同一语言模板）">
+            <option value="gnu-c++20">GNU C++20</option>
+            <option value="gnu-c++17" selected>GNU C++17</option>
+            <option value="python3.8">Python 3.8</option>
+            <option value="pypy3.10">PyPy 3.10</option>
+            <option value="java17">Java 17</option>
+            <option value="rust2021">Rust 2021</option>
+          </select>
+          <button class="primary-btn" id="editor-submit" title="复制代码到剪贴板并打开 Codeforces 提交页">提交 ↗</button>
+        </div>
+      </header>
+      <div class="editor-body">
+        <textarea id="editor-textarea" spellcheck="false" placeholder="在这里写代码…  Tab 缩进 4 空格，草稿自动保存到本地"></textarea>
+        <footer class="editor-foot"><span id="editor-stats">0 行 · 0 字符</span><span id="editor-saved">已保存</span></footer>
+      </div>
     </aside>
   </div>
 
