@@ -336,6 +336,8 @@ input, select { border: 0; background: none; }
 .detail-root.open { pointer-events: auto; }
 .detail-scrim { position: absolute; inset: 0; background: rgba(3, 6, 12, .66); backdrop-filter: blur(6px); opacity: 0; transition: opacity .42s cubic-bezier(.22, 1, .36, 1); }
 .detail-root.open .detail-scrim { opacity: 1; }
+/* 浮层压在标题栏拖拽区上方，必须显式 no-drag，否则真实鼠标点击会被系统当成拖窗口吞掉 */
+.detail-root, .editor-root, .detail-panel, .editor-panel, .modal-backdrop, .modal-card { -webkit-app-region: no-drag; }
 .detail-panel {
   position: absolute; top: 0; right: 0; width: min(760px, 94vw); height: 100%;
   display: flex; flex-direction: column; overflow: hidden;
