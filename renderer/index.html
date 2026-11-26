@@ -257,6 +257,24 @@
     </aside>
   </div>
 
+  <div id="statement-detail" class="detail-root" aria-hidden="true">
+    <div class="detail-scrim" data-statement-close></div>
+    <aside class="detail-panel" role="dialog" aria-modal="true" aria-label="题面">
+      <div class="detail-progress" id="statement-progress"></div>
+      <header class="detail-top">
+        <button class="detail-back" id="statement-back" title="返回列表">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M15 5l-7 7 7 7"/></svg><span>返回</span>
+        </button>
+        <div class="detail-top-title"><span>题面</span><small id="statement-code">#—</small></div>
+        <div class="detail-top-actions">
+          <button class="icon-btn" id="statement-external" title="在 Codeforces 打开原题">↗</button>
+          <button class="icon-btn" id="statement-close" title="关闭">×</button>
+        </div>
+      </header>
+      <div class="detail-body" id="statement-scroll"><div id="statement-content"></div></div>
+    </aside>
+  </div>
+
   <footer class="statusbar">
     <span class="status-left"><span class="status-pill" id="status-handle">tourist</span><span id="status-message">就绪</span></span>
     <span class="status-right">CF Desktop 1.0.0 · 数据来自 Codeforces 公开 API</span>

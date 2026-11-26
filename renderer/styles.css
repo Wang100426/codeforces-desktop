@@ -411,6 +411,25 @@ input, select { border: 0; background: none; }
 .detail-actions .ghost-btn { height: 38px; }
 .detail-sync { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--green); margin-left: 8px; }
 .detail-sync::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+/* ---------- problem statement ---------- */
+.statement-hero { padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: radial-gradient(circle at 10% 15%, rgba(90, 169, 255, .13), transparent 55%), var(--panel); }
+.statement-hero h2 { font-size: 19px; font-weight: 800; line-height: 1.35; }
+.statement-hero .sh-meta { display: flex; align-items: center; gap: 9px; margin-top: 9px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
+.statement-hero .sh-code { font-family: ui-monospace, Consolas, monospace; color: #aeb7ff; }
+.statement-hero .tag { font-size: 10px; }
+.statement-body { font-size: 13px; line-height: 1.8; color: #d4deed; }
+.statement-body p { margin: 11px 0; }
+.statement-body h3 { font-size: 13px; font-weight: 800; letter-spacing: .6px; color: #aeb7ff; margin: 22px 0 9px; padding-left: 9px; border-left: 2px solid var(--violet); }
+.statement-body ul { margin: 8px 0 8px 20px; }
+.statement-body li { margin: 5px 0; }
+.statement-body pre { margin: 9px 0; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 9px; background: #090e17; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-x: auto; color: #c8d6ea; }
+.statement-body .math { font-family: Georgia, "Times New Roman", serif; font-style: italic; color: #ffd9a0; }
+.statement-body code { padding: 1px 5px; border-radius: 4px; background: rgba(139, 140, 255, .14); color: #c9cbff; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.statement-source { margin-top: 12px; font-size: 10px; color: var(--dim); line-height: 1.6; }
+.statement-loading { display: flex; align-items: center; gap: 10px; padding: 26px 4px; color: var(--muted); font-size: 12px; }
+.statement-loading .spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--violet); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 @media (max-width: 900px) {
   .detail-metrics { grid-template-columns: repeat(2, 1fr); }
   .detail-body { padding: 18px 16px 36px; }
