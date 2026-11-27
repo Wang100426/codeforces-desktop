@@ -782,13 +782,14 @@ function statementInline(text) {
     .replace(/_([a-zA-Z0-9])\b/g, '<sub>$1</sub>')
     .replace(/\^\{([^}]*)\}/g, '<sup>$1</sup>')
     .replace(/\^([a-zA-Z0-9])\b/g, '<sup>$1</sup>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\$([^$]+)\$/g, '<span class="math">$1</span>');
 }
 
 function renderStatementMarkdown(md) {
   const out = [];
-  let para = [], list = false, pre = [];
+  let para = [], list = false, pre = [], fence = false;
   const flushPara = () => {
     if (para.length) { out.push(`<p>${statementInline(para.join(' '))}</p>`); para = []; }
   };
@@ -799,6 +800,27 @@ function renderStatementMarkdown(md) {
   for (const raw of (md || '').split('\n')) {
     const line = raw.replace(/\s+$/, '');
     if (!line.trim() || line.trim() === 'Copy') { flushPara(); flushList(); flushPre(); continue; }
+    if (/^```/.test(line.trim())) {
+      if (pre.length) { flushPre(); } else { flushPara(); flushList(); fence = true; }
+      continue;
+    }
+    if (fence) { pre.push(line); continue; }
+    if (/^#{1,3}\s+/.test(line.trim())) {
+      flushPara(); flushList(); flushPre();
+      const level = Math.min(line.trim().match(/^#+/)[0].length + 1, 4);
+      out.push(`<h${level}>${statementInline(line.trim().replace(/^#+\s+/, ''))}</h${level}>`);
+      continue;
+    }
+    if (/^\*\*[^*]+\*\*$/.test(line.trim())) {
+      flushPara(); flushList(); flushPre();
+      out.push(`<p class="st-label">${statementInline(line.trim())}</p>`);
+      continue;
+    }
+    if (/^_([^_]+)_$/.test(line.trim())) {
+      flushPara(); flushList(); flushPre();
+      out.push(`<p class="st-limits">${esc(line.trim().replace(/^_|_$/g, ''))}</p>`);
+      continue;
+    }
     if (/^(Input|Output|Example|Examples|Note|Explanation|Constraints)$/i.test(line.trim())) {
       flushPara(); flushList(); flushPre();
       out.push(`<h3>${esc(line.trim())}</h3>`);
@@ -851,7 +873,7 @@ async function openStatement(contestId, index) {
     if (!result.ok) throw new Error(result.error);
     $('#statement-content').innerHTML = `${renderStatementHero(p)}
       ${renderStatementMarkdown(result.content)}
-      <p class="statement-source">题面由第三方服务 Jina Reader 代理 Codeforces 原题页获取${result.cached ? ' · 命中本地缓存' : ''}，数学公式保留原始 LaTeX 写法。</p>
+      <p class="statement-source">${result.source === 'jina' ? '直连不可用，题面由第三方服务 Jina Reader 代理获取' : '题面直连 Codeforces 官网解析获取'}${result.cached ? ' · 命中本地缓存' : ''}</p>
       <div class="detail-actions"><button class="primary-btn" id="statement-write-bottom">写代码 ✎</button><button class="ghost-btn" id="statement-open-code">在 Codeforces 打开原题 ↗</button><button class="ghost-btn" id="statement-back-bottom">返回列表</button></div>`;
   } catch (error) {
     $('#statement-content').innerHTML = `${renderStatementHero(p)}

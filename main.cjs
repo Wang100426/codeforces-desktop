@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const auth = require('./auth.cjs');
@@ -107,13 +107,113 @@ async function apiCall(method, params, force) {
   return { data, cached: false, fetchedAt: now };
 }
 
-// 第三方题面源：Jina Reader 代理 CF 题目页，绕开 Cloudflare，返回干净的 markdown
-async function fetchStatement(contestId, index, force) {
-  const key = `${contestId}|${index}`;
-  const hit = statementCache.get(key);
-  if (!force && hit && Date.now() - hit.at < STATEMENT_TTL) {
-    return { content: hit.content, cached: true, fetchedAt: hit.at };
+// 题面获取：优先直连 Codeforces 官网解析 HTML（国内可达，无需第三方），
+// Jina Reader 降级为备用（境外网络 / 直连被 Cloudflare 拦时使用）
+function decodeEntities(text) {
+  return text
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+}
+
+function htmlToText(html) {
+  return decodeEntities(html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6]|pre)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '- ')
+    .replace(/<img[^>]*>/gi, '[图]')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim());
+}
+
+function parseStatementHtml(html, fallbackCode) {
+  const root = html.match(/<div class="problem-statement"[^>]*>([\s\S]*)/i);
+  if (!root) return null;
+  let body = root[1];
+  const tailMarkers = ['<div class="sidebar', '<div id="footer', '<div class="roundbox'];
+  for (const m of tailMarkers) {
+    const at = body.indexOf(m);
+    if (at > 0) body = body.slice(0, at);
   }
+  const SECTION_CLASSES = ['input-specification', 'output-specification', 'note', 'sample-tests'];
+  // 按节切分：每节从自己的 class 起点到下一节起点，避免嵌套 div 截断
+  const marks = SECTION_CLASSES
+    .map((cls) => ({ cls, at: body.indexOf(`<div class="${cls}`) }))
+    .filter((m) => m.at >= 0)
+    .sort((a, b) => a.at - b.at);
+  const sectionText = (cls) => {
+    const i = marks.findIndex((m) => m.cls === cls);
+    if (i < 0) return '';
+    const start = marks[i].at + `<div class="${cls}">`.length;
+    const end = i + 1 < marks.length ? marks[i + 1].at : body.length;
+    return htmlToText(body.slice(start, end));
+  };
+  // header 以连续两个 </div> 收尾；题干在 header 之后的无名 <div> 里
+  const headerMatch = body.match(/<div class="header">([\s\S]*?<\/div>\s*<\/div>)/i);
+  const headerHtml = headerMatch ? headerMatch[1] : '';
+  const headerEnd = headerMatch ? headerMatch.index + headerMatch[0].length : 0;
+  const firstSection = marks.length ? marks[0].at : body.length;
+  const legend = headerMatch ? htmlToText(body.slice(headerEnd, firstSection)) : '';
+  const title = (headerHtml.match(/<div class="title"[^>]*>([\s\S]*?)<\/div>/i)?.[1] || fallbackCode).trim();
+  const timeLimit = (headerHtml.match(/<div class="time-limit">([\s\S]*?)<\/div>/i)?.[1] || '')
+    .replace(/<[^>]+>/g, ' ').replace(/time limit per test/gi, '').trim();
+  const memLimit = (headerHtml.match(/<div class="memory-limit">([\s\S]*?)<\/div>/i)?.[1] || '')
+    .replace(/<[^>]+>/g, ' ').replace(/memory limit per test/gi, '').trim();
+  const io = ['input', 'output'].map((k) => (headerHtml.match(new RegExp(`<div class="${k}-file">([\\s\\S]*?)</div>`, 'i'))?.[1] || '').replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+  const limits = [timeLimit, memLimit].filter(Boolean).join(' · ') + (io.length ? ` · ${io.join(' / ')}` : '');
+  const inputSpec = sectionText('input-specification').replace(/^Input\s*/i, '');
+  const outputSpec = sectionText('output-specification').replace(/^Output\s*/i, '');
+  const note = sectionText('note').replace(/^Note\s*/i, '');
+  const samples = [...body.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi)]
+    .map((m) => htmlToText(m[1]).replace(/^Copy\s*/i, ''))
+    .filter((t) => t.length);
+  const parts = [`# ${decodeEntities(title).replace(/^\w+\.\s*/, '')}`, limits ? `_${limits}_` : '', legend];
+  if (inputSpec) parts.push('## Input', inputSpec);
+  if (outputSpec) parts.push('## Output', outputSpec);
+  if (samples.length) {
+    parts.push('## Example');
+    samples.forEach((s, i) => {
+      parts.push(i % 2 === 0 ? '**输入**' : '**输出**');
+      parts.push('```\n' + s + '\n```');
+    });
+  }
+  if (note) parts.push('## Note', note);
+  const content = parts.filter(Boolean).join('\n\n');
+  return content.length > 200 ? content : null;
+}
+
+let statementWin = null;
+// 隐藏窗口真实加载 CF 页面：真 Chromium 能自动过 Cloudflare JS 挑战，主进程任何 fetch 都过不了
+async function fetchStatementDirect(contestId, index) {
+  const url = `https://codeforces.com/problemset/problem/${encodeURIComponent(contestId)}/${encodeURIComponent(index)}`;
+  if (!statementWin || statementWin.isDestroyed()) {
+    statementWin = new BrowserWindow({
+      show: false, width: 1100, height: 800, webPreferences: {
+        offscreen: true, backgroundThrottling: false,
+        partition: 'statement-fetch'
+      }
+    });
+    statementWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  }
+  const wc = statementWin.webContents;
+  await wc.loadURL(url, { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36' });
+  // 轮询等题面 DOM 出现（挑战页会自动跳转成真页面）
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    const check = await wc.executeJavaScript(
+      `(function(){const el=document.querySelector('.problem-statement');return el?el.outerHTML:null;})()`,
+      true
+    );
+    if (check && check.length > 500) return parseStatementHtml(`<div class="problem-statement">${check}`, `${contestId}${index}`);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  throw new Error('加载题面超时（网络较慢或被 Cloudflare 拦截）');
+}
+
+async function fetchStatementJina(contestId, index) {
   const url = `https://r.jina.ai/https://codeforces.com/problemset/problem/${encodeURIComponent(contestId)}/${encodeURIComponent(index)}`;
   const response = await fetch(url, {
     headers: { 'User-Agent': 'CF Desktop / Electron Client', Accept: 'text/plain' },
@@ -127,9 +227,33 @@ async function fetchStatement(contestId, index, force) {
   if (!content || /Just a moment|Cloudflare|Rate limit/i.test(content)) {
     throw new Error('题面服务暂时不可用，请稍后重试或打开原网页');
   }
+  return content;
+}
+
+async function fetchStatement(contestId, index, force) {
+  const key = `${contestId}|${index}`;
+  const hit = statementCache.get(key);
+  if (!force && hit && Date.now() - hit.at < STATEMENT_TTL) {
+    return { content: hit.content, cached: true, fetchedAt: hit.at, source: hit.source };
+  }
+  let content = null, source = '', directError = null;
+  try {
+    content = await fetchStatementDirect(contestId, index);
+    source = 'direct';
+  } catch (error) {
+    directError = error;
+  }
+  if (!content) {
+    try {
+      content = await fetchStatementJina(contestId, index);
+      source = 'jina';
+    } catch {
+      throw directError || new Error('直连与第三方题面源均不可用');
+    }
+  }
   const at = Date.now();
-  statementCache.set(key, { content, at });
-  return { content, cached: false, fetchedAt: at };
+  statementCache.set(key, { content, at, source });
+  return { content, cached: false, fetchedAt: at, source };
 }
 
 // 从改名前（cf-pulse）的 userData 一次性迁移本地设置，避免 handle 被重置为 tourist
